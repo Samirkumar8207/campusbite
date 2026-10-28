@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CampusBite</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 0 12px; background: #f5f5f5; }
+  h1 { text-align: center; }
+  section { background: #fff; padding: 16px; margin-bottom: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+  input, select, button { padding: 7px; margin: 3px; }
+  button { cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  td, th { border-bottom: 1px solid #ddd; padding: 6px; text-align: left; }
+  #msg { text-align: center; font-weight: bold; min-height: 20px; }
+</style>
+</head>
+<body>
+<h1>CampusBite - College Canteen Ordering</h1>
+<p id="msg"></p>
+
+<section>
+  <h2>1. User (User Service)</h2>
+  <input id="name" placeholder="Name">
+  <input id="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Password">
+  <input id="phone" placeholder="Phone">
+  <button onclick="registerUser()">Register</button>
+  <button onclick="loginUser()">Login</button>
+  <p>Logged in as: <b id="who">nobody</b></p>
+</section>
+
+<section>
+  <h2>2. Menu (Menu Service)</h2>
+  <input id="mname" placeholder="Item name">
+  <input id="mprice" type="number" placeholder="Price">
+  <input id="mcat" placeholder="Category">
+  <button onclick="addItem()">Add item</button>
+  <table>
+    <thead><tr><th>Item</th><th>Price</th><th>Category</th><th>Qty</th><th></th></tr></thead>
+    <tbody id="menuBody"></tbody>
+  </table>
+  <button onclick="placeOrder()">Place order</button>
+</section>
+
+<section>
+  <h2>3. Orders (Order Service)</h2>
+  <button onclick="loadOrders()">Refresh orders</button>
+  <table>
+    <thead><tr><th>Items</th><th>Total</th><th>Status</th><th>Update</th><th></th></tr></thead>
+    <tbody id="orderBody"></tbody>
+  </table>
+</section>
+
+<script>
+const USER_API = "http://localhost:5001";
+const MENU_API = "http://localhost:5002";
+const ORDER_API = "http://localhost:5003";
+let userId = null;
+let menu = [];
+
+function show(text) { document.getElementById("msg").textContent = text; }
+function val(id) { return document.getElementById(id).value; }
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// one helper for all API calls
+async function call(url, method = "GET", body) {
+  const res = await fetch(url, {
+    method: method,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+// run a function and show errors on the page
+async function run(fn) {
+  try { await fn(); } catch (e) { show("Error: " + e.message); }
+}
+
+// ---------- User ----------
+function registerUser() {
+  run(async () => {
+    await call(USER_API + "/users/register", "POST", {
+      name: val("name"), email: val("email"), password: val("password"), phone: val("phone"),
+    });
+    show("Registered. Now click Login.");
+  });
+}
+
+function loginUser() {
+  run(async () => {
+    const data = await call(USER_API + "/users/login", "POST", {
+      email: val("email"), password: val("password"),
+    });
+    userId = data.userId;
+    document.getElementById("who").textContent = data.name;
+    show("Login successful");
+    loadOrders();
+  });
+}
+
+// ---------- Menu ----------
+function loadMenu() {
+  run(async () => {
+    menu = await call(MENU_API + "/menu");
+    document.getElementById("menuBody").innerHTML = menu.map(m => `
+      <tr>
+        <td>${esc(m.name)}</td>
+        <td>${m.price}</td>
+        <td>${esc(m.category || "")}</td>
+        <td><input type="number" min="0" value="0" id="q_${m._id}" style="width:60px"></td>
+        <td><button onclick="deleteItem('${m._id}')">Delete</button></td>
+      </tr>`).join("");
+  });
+}
+
+function addItem() {
+  run(async () => {
+    await call(MENU_API + "/menu", "POST", {
+      name: val("mname"), price: Number(val("mprice")), category: val("mcat"),
+    });
+    show("Item added");
+    loadMenu();
+  });
+}
+
+function deleteItem(id) {
+  run(async () => {
+    await call(MENU_API + "/menu/" + id, "DELETE");
+    show("Item deleted");
+    loadMenu();
+  });
+}
+
+// ---------- Orders ----------
+function placeOrder() {
+  run(async () => {
+    if (!userId) { show("Please login first"); return; }
+    const items = menu
+      .map(m => ({ menuItemId: m._id, quantity: Number(document.getElementById("q_" + m._id).value) }))
+      .filter(i => i.quantity > 0);
+    if (items.length === 0) { show("Select at least one item (Qty > 0)"); return; }
+    const order = await call(ORDER_API + "/orders", "POST", { userId: userId, items: items });
+    show("Order placed. Total = " + order.totalAmount);
+    loadMenu();
+    loadOrders();
+  });
+}
+
+function loadOrders() {
+  run(async () => {
+    let orders = await call(ORDER_API + "/orders");
+    if (userId) orders = orders.filter(o => o.userId === userId);
+    document.getElementById("orderBody").innerHTML = orders.map(o => `
+      <tr>
+        <td>${o.items.map(i => esc(i.name) + " x" + i.quantity).join(", ")}</td>
+        <td>${o.totalAmount}</td>
+        <td>${esc(o.status)}</td>
+        <td>
+          <select id="s_${o._id}">
+            <option>placed</option><option>preparing</option><option>ready</option><option>delivered</option>
+          </select>
+          <button onclick="updateStatus('${o._id}')">Update</button>
+        </td>
+        <td><button onclick="deleteOrder('${o._id}')">Cancel</button></td>
+      </tr>`).join("");
+  });
+}
+
+function updateStatus(id) {
+  run(async () => {
+    await call(ORDER_API + "/orders/" + id, "PUT", { status: document.getElementById("s_" + id).value });
+    show("Status updated");
+    loadOrders();
+  });
+}
+
+function deleteOrder(id) {
+  run(async () => {
+    await call(ORDER_API + "/orders/" + id, "DELETE");
+    show("Order cancelled");
+    loadOrders();
+  });
+}
+
+loadMenu();
+loadOrders();
+</script>
+</body>
+</html>
