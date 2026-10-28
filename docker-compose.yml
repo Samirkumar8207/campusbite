@@ -1,4 +1,3 @@
-
 services:
   mongo:
     image: mongo:7
@@ -7,6 +6,7 @@ services:
 
   user-service:
     build: ./user-service
+    image: samir8207/campusbite-user-service:latest
     ports:
       - "5001:5001"
     environment:
@@ -16,6 +16,7 @@ services:
 
   menu-service:
     build: ./menu-service
+    image: samir8207/campusbite-menu-service:latest
     ports:
       - "5002:5002"
     environment:
@@ -25,6 +26,7 @@ services:
 
   order-service:
     build: ./order-service
+    image: samir8207/campusbite-order-service:latest
     ports:
       - "5003:5003"
     environment:
@@ -38,6 +40,7 @@ services:
 
   frontend:
     build: ./frontend
+    image: samir8207/campusbite-frontend:latest
     ports:
       - "8080:80"
     depends_on:
